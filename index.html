@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GGS Marketplace</title>
+    <style>
+        body {
+            background-color: black;
+            color: white;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+        .header {
+            background-color: grey;
+            padding: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header button {
+            background-color: black;
+            color: white;
+            border: 1px solid white;
+            padding: 8px 16px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        .header button:hover {
+            background-color: #333;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.4);
+            padding-top: 60px;
+        }
+        .modal-content {
+            background-color: grey;
+            margin: 5% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%;
+            max-width: 400px;
+        }
+        .close {
+            color: white;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+        }
+        .close:hover,
+        .close:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        input {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            background-color: black;
+            color: white;
+            border: 1px solid white;
+        }
+        #items-container {
+            padding: 20px;
+        }
+        .item {
+            background-color: grey;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            position: relative;
+        }
+        .item img {
+            max-width: 200px;
+            height: auto;
+        }
+        .delete-btn {
+            display: none;
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background-color: red;
+            color: white;
+            border: none;
+            padding: 5px;
+            cursor: pointer;
+        }
+        #admin-panel {
+            display: none;
+            padding: 20px;
+            background-color: #333;
+        }
+        #main-content {
+            display: none;
+        }
+    </style>
+    <!-- Stripe JS for payment integration (you'll need to add your publishable key and backend for sessions) -->
+    <script src="https://js.stripe.com/v3/"></script>
+</head>
+<body>
+
+    <div class="header">
+        <div>
+            <button id="signup-btn">Sign Up</button>
+            <button id="login-btn">Log In</button>
+            <button id="sell-btn" style="display: none;">Sell</button>
+        </div>
+        <div id="user-info" style="display: none;">Logged in as: <span id="username"></span> <button id="logout-btn">Logout</button></div>
+    </div>
+
+    <!-- Sign Up Modal -->
+    <div id="signup-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" id="signup-close">&times;</span>
+            <h2>Sign Up</h2>
+            <input type="text" id="signup-username" placeholder="Username">
+            <input type="password" id="signup-password" placeholder="Password">
+            <button onclick="handleSignup()">Sign Up</button>
+        </div>
+    </div>
+
+    <!-- Log In Modal -->
+    <div id="login-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" id="login-close">&times;</span>
+            <h2>Log In</h2>
+            <input type="text" id="login-username" placeholder="Username">
+            <input type="password" id="login-password" placeholder="Password">
+            <button onclick="handleLogin()">Log In</button>
+        </div>
+    </div>
+
+    <!-- Sell Modal -->
+    <div id="sell-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" id="sell-close">&times;</span>
+            <h2>Sell Item</h2>
+            <input type="text" id="item-name" placeholder="Item Name">
+            <input type="number" id="item-price" placeholder="Price">
+            <input type="file" id="item-pic" accept="image/*">
+            <textarea id="item-desc" placeholder="Description"></textarea>
+            <button onclick="handleAddItem()">Add</button>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div id="main-content">
+        <div id="items-container"></div>
+        <div id="admin-panel">
+            <h2>Admin Panel (For GGS.con only)</h2>
+            <button onclick="deleteAllUsers()">Delete All Users</button> <!-- Placeholder; adjust as needed -->
+        </div>
+    </div>
+
+    <script>
+        const stripe = Stripe('pk_test_YOUR_PUBLISHABLE_KEY_HERE'); // Replace with your Stripe publishable key
+
+        // Modals
+        const signupModal = document.getElementById('signup-modal');
+        const loginModal = document.getElementById('login-modal');
+        const sellModal = document.getElementById('sell-modal');
+
+        document.getElementById('signup-btn').onclick = () => signupModal.style.display = 'block';
+        document.getElementById('login-btn').onclick = () => loginModal.style.display = 'block';
+        document.getElementById('sell-btn').onclick = () => sellModal.style.display = 'block';
+
+        document.getElementById('signup-close').onclick = () => signupModal.style.display = 'none';
+        document.getElementById('login-close').onclick = () => loginModal.style.display = 'none';
+        document.getElementById('sell-close').onclick = () => sellModal.style.display = 'none';
+
+        window.onclick = (event) => {
+            if (event.target == signupModal) signupModal.style.display = 'none';
+            if (event.target == loginModal) loginModal.style.display = 'none';
+            if (event.target == sellModal) sellModal.style.display = 'none';
+        };
+
+        // Local Storage for users and items (note: this is local only, for real persistence use a backend/database)
+        let users = JSON.parse(localStorage.getItem('users')) || [];
+        let items = JSON.parse(localStorage.getItem('items')) || [];
+        let currentUser = null;
+
+        function handleSignup() {
+            const username = document.getElementById('signup-username').value;
+            const password = document.getElementById('signup-password').value;
+            if (users.find(u => u.username === username)) {
+                alert('Username taken');
+                return;
+            }
+            users.push({ username, password });
+            localStorage.setItem('users', JSON.stringify(users));
+            signupModal.style.display = 'none';
+            loginAfterAuth(username);
+        }
+
+        function handleLogin() {
+            const username = document.getElementById('login-username').value;
+            const password = document.getElementById('login-password').value;
+            const user = users.find(u => u.username === username && u.password === password);
+            if (!user) {
+                alert('Invalid credentials');
+                return;
+            }
+            loginModal.style.display = 'none';
+            loginAfterAuth(username);
+        }
+
+        function loginAfterAuth(username) {
+            currentUser = username;
+            document.getElementById('signup-btn').style.display = 'none';
+            document.getElementById('login-btn').style.display = 'none';
+            document.getElementById('sell-btn').style.display = 'inline-block';
+            document.getElementById('user-info').style.display = 'block';
+            document.getElementById('username').textContent = username;
+            document.getElementById('main-content').style.display = 'block';
+
+            if (username === 'GGS.con') {
+                document.getElementById('admin-panel').style.display = 'block';
+                showDeleteButtons();
+            }
+            loadItems();
+        }
+
+        document.getElementById('logout-btn').onclick = () => {
+            currentUser = null;
+            document.getElementById('signup-btn').style.display = 'inline-block';
+            document.getElementById('login-btn').style.display = 'inline-block';
+            document.getElementById('sell-btn').style.display = 'none';
+            document.getElementById('user-info').style.display = 'none';
+            document.getElementById('main-content').style.display = 'none';
+            document.getElementById('admin-panel').style.display = 'none';
+            hideDeleteButtons();
+        };
+
+        function handleAddItem() {
+            const name = document.getElementById('item-name').value;
+            const price = document.getElementById('item-price').value;
+            const desc = document.getElementById('item-desc').value;
+            const picFile = document.getElementById('item-pic').files[0];
+
+            if (!name || !price || !desc || !picFile) {
+                alert('Fill all fields');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                items.push({ name, price, desc, pic: e.target.result, owner: currentUser });
+                localStorage.setItem('items', JSON.stringify(items));
+                loadItems();
+                sellModal.style.display = 'none';
+            };
+            reader.readAsDataURL(picFile);
+        }
+
+        function loadItems() {
+            const container = document.getElementById('items-container');
+            container.innerHTML = '';
+            items.forEach((item, index) => {
+                const div = document.createElement('div');
+                div.className = 'item';
+                div.innerHTML = `
+                    <h3>${item.name}</h3>
+                    <p>Price: $${item.price}</p>
+                    <img src="${item.pic}" alt="${item.name}">
+                    <p>${item.desc}</p>
+                    <button onclick="buyItem(${index})">Buy</button>
+                    <button class="delete-btn" onclick="deleteItem(${index})">Delete</button>
+                `;
+                container.appendChild(div);
+            });
+            if (currentUser === 'GGS.con') showDeleteButtons();
+        }
+
+        function showDeleteButtons() {
+            document.querySelectorAll('.delete-btn').forEach(btn => btn.style.display = 'block');
+        }
+
+        function hideDeleteButtons() {
+            document.querySelectorAll('.delete-btn').forEach(btn => btn.style.display = 'none');
+        }
+
+        function deleteItem(index) {
+            items.splice(index, 1);
+            localStorage.setItem('items', JSON.stringify(items));
+            loadItems();
+        }
+
+        function deleteAllUsers() {
+            // Placeholder: deletes all users except admin
+            users = users.filter(u => u.username === 'GGS.con');
+            localStorage.setItem('users', JSON.stringify(users));
+            alert('All users deleted except admin');
+        }
+
+        // Stripe Buy Function (requires backend to create checkout session)
+        async function buyItem(index) {
+            const item = items[index];
+            // This is a placeholder; you need a server to create a Stripe session
+            // Example: fetch('/create-checkout-session', { method: 'POST', body: JSON.stringify({ item }) })
+            // Then: const { id } = await response.json();
+            // stripe.redirectToCheckout({ sessionId: id });
+            alert(`Buying ${item.name} for $${item.price}. Integrate backend for real Stripe payment.`);
+        }
+    </script>
+
+</body>
+</html>
